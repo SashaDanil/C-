@@ -19,6 +19,7 @@ namespace SupportDesk
         [DllImportAttribute("user32.dll")]
         public static extern bool ReleaseCapture();
         #endregion
+
         #region Локальные переменные
         private SQLiteConnection DB;
         private readonly DateTime thisDay = DateTime.Now;
@@ -26,9 +27,11 @@ namespace SupportDesk
         private readonly string directory = RememberLogin.directoryName;
         private readonly string nameFileRemember = RememberLogin.fileName;
         private int attemptLogin = 3;
+
         [Obsolete]
         private readonly Form fbot = new TelegramForm();
         #endregion
+
         [Obsolete]
         public LoginForm()
         {
@@ -37,13 +40,16 @@ namespace SupportDesk
         }
 
         [Obsolete]
-        private async void LoginForm_Load(object sender, EventArgs e)
+        private void LoginForm_Load(object sender, EventArgs e)
         {
             RootAccess.CheckRunApp = true;
-            DB = new SQLiteConnection(Database.connectionString);
-            await DB.OpenAsync();
+
+            // Используем ОБЩЕЕ соединение из Database
+            DB = Database.GetConnection();
+
             fbot.Show();
         }
+
         #region Регистрация
         [Obsolete]
         private void ButtonRegUser_Click(object sender, EventArgs e)
@@ -54,6 +60,7 @@ namespace SupportDesk
             Hide();
         }
         #endregion
+
         #region Управление паролем (Глазик)
         private void ExpUIButtonIconCheckUnlock_Click(object sender, EventArgs e)
         {
@@ -61,6 +68,7 @@ namespace SupportDesk
             expUIButtonIconCheckUnlock.Visible = false;
             expUIButtonIconCheckLock.Visible = true;
         }
+
         private void ExpUIButtonIconCheckLock_Click(object sender, EventArgs e)
         {
             TextBoxPassword.UseSystemPasswordChar = false;
@@ -68,6 +76,7 @@ namespace SupportDesk
             expUIButtonIconCheckLock.Visible = false;
         }
         #endregion
+
         #region Выход
         private void ButtonExit_Click(object sender, EventArgs e)
         {
@@ -79,19 +88,18 @@ namespace SupportDesk
             Close();
         }
         #endregion
+
         #region Забыли пароль
         private void LabelForgotPassword_Click(object sender, EventArgs e)
         {
-            if (DataRequests.IsOpen)
-            {
-                return;
-            }
+            if (DataRequests.IsOpen) return;
 
             Form fForgotPass = new ForgotPasswordForm();
             fForgotPass.Show();
             DataRequests.IsOpen = true;
         }
         #endregion
+
         #region Сертификат безопасности
         private void CheckValidatePassword()
         {
@@ -100,11 +108,13 @@ namespace SupportDesk
             {
                 if (Regex.IsMatch(checkPass, $"\\b{text}\\b"))
                 {
-                    MessageBoxUI.Show($"{CertificateSecurity.textError}", $"{CertificateSecurity.textHeadError}", "Error");
+                    MessageBoxUI.Show($"{CertificateSecurity.textError}",
+                        $"{CertificateSecurity.textHeadError}", "Error");
                 }
             }
         }
         #endregion
+
         #region Запомнить меня
         private void CheckRemeber()
         {
@@ -116,6 +126,7 @@ namespace SupportDesk
                 TextBoxPassword.Text = adv[1];
             }
         }
+
         private void CheckRemember_CheckedChanged(object sender, EventArgs e)
         {
             if (CheckRemember.Checked)
@@ -127,16 +138,18 @@ namespace SupportDesk
             }
         }
         #endregion
+
         #region Управление формой
         private void FormControl(object sender, MouseEventArgs e)
         {
             if (e.Button == MouseButtons.Left)
             {
-                _ = ReleaseCapture();
-                _ = SendMessage(Handle, WM_NCLBUTTONDOWN, HT_CAPTION, 0);
+                ReleaseCapture();
+                SendMessage(Handle, WM_NCLBUTTONDOWN, HT_CAPTION, 0);
             }
         }
         #endregion
+
         #region buttonEnterLogin enabled = true/false
         private void TextBoxPassword_TextChanged(object sender, EventArgs e)
         {
@@ -150,176 +163,219 @@ namespace SupportDesk
             ButtonEnterLogin.Enabled = TextBoxLogin.Text != "" && TextBoxPassword.Text != "";
         }
         #endregion
+
         #region Вход
         [Obsolete]
-        private async void ButtonEnterLogin_Click(object sender, EventArgs e)
+        private void ButtonEnterLogin_Click(object sender, EventArgs e)
         {
             DataTable table = new DataTable();
             SQLiteDataAdapter adapter = new SQLiteDataAdapter();
-            SQLiteDataReader sqlReader = null;
-            SQLiteCommand command = new SQLiteCommand($"SELECT * FROM [{Table_users.main}] WHERE [{Table_users.login}] = '" + TextBoxLogin.Text + $"' AND [{Table_users.pass}] = '" + TextBoxPassword.Text + "'", DB);
-            try
+
+            using (var command = new SQLiteCommand(
+                $"SELECT * FROM [{Table_users.main}] WHERE [{Table_users.login}] = @login AND [{Table_users.pass}] = @pass", DB))
             {
-                adapter.SelectCommand = command;
-                _ = adapter.Fill(table);
-                if (table.Rows.Count > 0)
+                command.Parameters.AddWithValue("login", TextBoxLogin.Text);
+                command.Parameters.AddWithValue("pass", TextBoxPassword.Text);
+
+                try
                 {
-                    sqlReader = (SQLiteDataReader)await command.ExecuteReaderAsync();
-                    while (await sqlReader.ReadAsync())
+                    adapter.SelectCommand = command;
+                    adapter.Fill(table);
+
+                    if (table.Rows.Count > 0)
                     {
-                        string checkLocked = sqlReader[$"{Table_users.typeAccess}"].ToString();
-                        if (checkLocked == "" || checkLocked == null)
+                        // Пользователь найден
+                        using (var reader = command.ExecuteReader())
                         {
-                            DataUsers.Family = sqlReader[$"{Table_users.family}"].ToString();
-                            DataUsers.Name = sqlReader[$"{Table_users.name}"].ToString();
-                            DataUsers.Father = sqlReader[$"{Table_users.father}"].ToString();
-                            DataUsers.Initials = sqlReader[$"{Table_users.initials}"].ToString();
-                            DataUsers.Gender = sqlReader[$"{Table_users.gender}"].ToString();
-                            DataUsers.Number = sqlReader[$"{Table_users.number}"].ToString();
-                            DataUsers.Email = sqlReader[$"{Table_users.email}"].ToString();
-                            DataUsers.Depart = sqlReader[$"{Table_users.depart}"].ToString();
-                            DataUsers.Position = sqlReader[$"{Table_users.position}"].ToString();
-                            DataUsers.Login = sqlReader[$"{Table_users.login}"].ToString();
-                            DataUsers.Pass = sqlReader[$"{Table_users.pass}"].ToString();
-                            DataUsers.GroupUser = sqlReader[$"{Table_users.groupUser}"].ToString();
-                            DataUsers.Image = sqlReader[$"{Table_users.image}"].ToString();
-                            if (sqlReader[$"{Table_users.groupUser}"].ToString() == "ADMIN")
+                            while (reader.Read())
                             {
-                                Form fMain = new MainAdminForm();
-                                fMain.Show();
-                                fMain.FormClosed += new FormClosedEventHandler(Form_FormClosed);
-                                Hide();
+                                string checkLocked = reader[$"{Table_users.typeAccess}"].ToString();
+
+                                if (string.IsNullOrEmpty(checkLocked))
+                                {
+                                    DataUsers.Family    = reader[$"{Table_users.family}"].ToString();
+                                    DataUsers.Name      = reader[$"{Table_users.name}"].ToString();
+                                    DataUsers.Father    = reader[$"{Table_users.father}"].ToString();
+                                    DataUsers.Initials  = reader[$"{Table_users.initials}"].ToString();
+                                    DataUsers.Gender    = reader[$"{Table_users.gender}"].ToString();
+                                    DataUsers.Number    = reader[$"{Table_users.number}"].ToString();
+                                    DataUsers.Email     = reader[$"{Table_users.email}"].ToString();
+                                    DataUsers.Depart    = reader[$"{Table_users.depart}"].ToString();
+                                    DataUsers.Position  = reader[$"{Table_users.position}"].ToString();
+                                    DataUsers.Login     = reader[$"{Table_users.login}"].ToString();
+                                    DataUsers.Pass      = reader[$"{Table_users.pass}"].ToString();
+                                    DataUsers.GroupUser = reader[$"{Table_users.groupUser}"].ToString();
+                                    DataUsers.Image     = reader[$"{Table_users.image}"].ToString();
+
+                                    string group = reader[$"{Table_users.groupUser}"].ToString();
+
+                                    // Закрываем reader ДО открытия новой формы
+                                    reader.Close();
+
+                                    Form fMain;
+                                    if (group == "ADMIN")
+                                        fMain = new MainAdminForm();
+                                    else if (group == "WORKER")
+                                        fMain = new MainWorkerForm();
+                                    else
+                                        fMain = new MainUserForm();
+
+                                    fMain.Show();
+                                    fMain.FormClosed += new FormClosedEventHandler(Form_FormClosed);
+                                    Hide();
+
+                                    File.AppendAllText(Logs.file,
+                                        $"[Вход]{DataUsers.Initials} ({thisDay:dd.MM.yyyy HH:mm})");
+                                    File.AppendAllText(Logs.file, Environment.NewLine);
+                                    CheckValidatePassword();
+
+                                    return; // выходим — соединение DB не закрываем, оно общее
+                                }
+                                else
+                                {
+                                    MessageBoxUI.Show(
+                                        "Учетная запись заблокирована! Свяжитесь с системным администратором для восстановления.",
+                                        "Ошибка авторизации", "Error");
+                                    Close();
+                                    return;
+                                }
                             }
-                            else if (sqlReader[$"{Table_users.groupUser}"].ToString() == "WORKER")
-                            {
-                                Form fMain = new MainWorkerForm();
-                                fMain.Show();
-                                fMain.FormClosed += new FormClosedEventHandler(Form_FormClosed);
-                                Hide();
-                            }
-                            else if (sqlReader[$"{Table_users.groupUser}"].ToString() == "USER")
-                            {
-                                Form fMain = new MainUserForm();
-                                fMain.Show();
-                                fMain.FormClosed += new FormClosedEventHandler(Form_FormClosed);
-                                Hide();
-                            }
-                            File.AppendAllText(Logs.file, $"[Вход]{DataUsers.Initials} ({thisDay:dd.MM.yyyy HH:mm})");
-                            File.AppendAllText(Logs.file, Environment.NewLine);
-                            CheckValidatePassword();
                         }
-                        else
+                    }
+                    else
+                    {
+                        // Пользователь не найден — проверяем логин и попытки
+                        string login = TextBoxLogin.Text;
+
+                        using (var commandCheck = new SQLiteCommand(
+                            $"SELECT * FROM [{Table_users.main}] WHERE [{Table_users.login}]=@login", DB))
                         {
-                            MessageBoxUI.Show("Учетная запись заблокирована! Свяжитесь с системным администратором для восстановления.", "Ошибка авторизации", "Error");
-                            Close();
+                            commandCheck.Parameters.AddWithValue("login", login);
+
+                            using (var reader = commandCheck.ExecuteReader())
+                            {
+                                while (reader.Read())
+                                {
+                                    string check = reader[$"{Table_users.typeAccess}"].ToString();
+
+                                    if (attemptLogin > 0 && check != "LOCKED")
+                                    {
+                                        attemptLogin -= 1;
+                                        MessageBoxUI.Show("Неверный логин или пароль",
+                                            "Ошибка авторизации", "Error");
+                                    }
+                                    else
+                                    {
+                                        string locked = "LOCKED";
+
+                                        reader.Close(); // закрываем ПЕРЕД update
+
+                                        using (var commandUpdate = new SQLiteCommand(
+                                            $"UPDATE {Table_users.main} SET [{Table_users.typeAccess}]=@locked WHERE [{Table_users.login}] = @login", DB))
+                                        {
+                                            commandUpdate.Parameters.AddWithValue("login", login);
+                                            commandUpdate.Parameters.AddWithValue("locked", locked);
+                                            commandUpdate.ExecuteNonQuery();
+                                        }
+
+                                        File.AppendAllText(Logs.file,
+                                            $"[Вход]Учетная запись пользователя {login} заблокирована!({thisDay:dd.MM.yyyy HH:mm})");
+                                        File.AppendAllText(Logs.file, Environment.NewLine);
+
+                                        MessageBoxUI.Show(
+                                            "Учетная запись заблокирована! Свяжитесь с системным администратором для восстановления.",
+                                            "Ошибка авторизации", "Error");
+                                        Close();
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Если пользователя с таким логином нет — просто сообщаем
+                        if (table.Rows.Count == 0)
+                        {
+                            MessageBoxUI.Show("Неверный логин или пароль",
+                                "Ошибка авторизации", "Error");
                         }
                     }
                 }
-                else
+                catch (Exception ex)
                 {
-                    string login = TextBoxLogin.Text;
-                    SQLiteCommand commandCheck = new SQLiteCommand($"SELECT * FROM [{Table_users.main}] WHERE [{Table_users.login}]=@login", DB);
-                    _ = commandCheck.Parameters.AddWithValue("login", login);
-                    sqlReader = (SQLiteDataReader)await commandCheck.ExecuteReaderAsync();
-                    while (await sqlReader.ReadAsync())
-                    {
-                        string check = sqlReader[$"{Table_users.typeAccess}"].ToString();
-                        if (attemptLogin > 0 && check != "LOCKED")
-                        {
-                            attemptLogin -= 1;
-                            MessageBoxUI.Show("Неверный логин или пароль", "Ошибка авторизации", "Error");
-                        }
-                        else
-                        {
-                            string locked = "LOCKED";
-                            SQLiteCommand commandUpdate = new SQLiteCommand($"UPDATE {Table_users.main} SET [{Table_users.typeAccess}]=@locked WHERE [{Table_users.login}] = @login", DB);
-                            _ = commandUpdate.Parameters.AddWithValue("login", login);
-                            _ = commandUpdate.Parameters.AddWithValue("locked", locked);
-                            _ = await commandUpdate.ExecuteNonQueryAsync();
-                            File.AppendAllText(Logs.file, $"[Вход]Учетная запись пользователя {login}|{sqlReader[$"{Table_users.initials}"]}| заблокирована!({thisDay:dd.MM.yyyy HH:mm})");
-                            File.AppendAllText(Logs.file, Environment.NewLine);
-                            MessageBoxUI.Show("Учетная запись заблокирована! Свяжитесь с системным администратором для восстановления.", "Ошибка авторизации", "Error");
-                            Close();
-                        }
-                    }
+                    MessageBoxUI.Show($"{ex.Message}", $"{ex.Source}", "Error");
                 }
-            }
-            catch (Exception ex)
-            {
-                MessageBoxUI.Show($"{ex.Message}", $"{ex.Source}", "Error");
-            }
-            finally
-            {
-                sqlReader?.Close();
             }
         }
 
         [Obsolete]
-        public async void EnterLoginPerUser(SQLiteConnection DB)
+        public void EnterLoginPerUser()
         {
             DataTable table = new DataTable();
             SQLiteDataAdapter adapter = new SQLiteDataAdapter();
-            SQLiteDataReader sqlReader = null;
-            SQLiteCommand command = new SQLiteCommand($"SELECT * FROM [{Table_users.main}] WHERE [{Table_users.login}] = '" + LoginPerUser.Login + $"' AND [{Table_users.pass}] = '" + LoginPerUser.Pass + "'", DB);
-            try
+
+            using (var command = new SQLiteCommand(
+                $"SELECT * FROM [{Table_users.main}] WHERE [{Table_users.login}] = @login AND [{Table_users.pass}] = @pass", DB))
             {
-                adapter.SelectCommand = command;
-                _ = adapter.Fill(table);
-                if (table.Rows.Count > 0)
+                command.Parameters.AddWithValue("login", LoginPerUser.Login);
+                command.Parameters.AddWithValue("pass", LoginPerUser.Pass);
+
+                try
                 {
-                    sqlReader = (SQLiteDataReader)await command.ExecuteReaderAsync();
-                    while (await sqlReader.ReadAsync())
+                    adapter.SelectCommand = command;
+                    adapter.Fill(table);
+
+                    if (table.Rows.Count > 0)
                     {
-                        DataUsers.Family = sqlReader[$"{Table_users.family}"].ToString();
-                        DataUsers.Name = sqlReader[$"{Table_users.name}"].ToString();
-                        DataUsers.Father = sqlReader[$"{Table_users.father}"].ToString();
-                        DataUsers.Initials = sqlReader[$"{Table_users.initials}"].ToString();
-                        DataUsers.Number = sqlReader[$"{Table_users.number}"].ToString();
-                        DataUsers.Email = sqlReader[$"{Table_users.email}"].ToString();
-                        DataUsers.Depart = sqlReader[$"{Table_users.depart}"].ToString();
-                        DataUsers.Position = sqlReader[$"{Table_users.position}"].ToString();
-                        DataUsers.Login = sqlReader[$"{Table_users.login}"].ToString();
-                        DataUsers.Pass = sqlReader[$"{Table_users.pass}"].ToString();
-                        DataUsers.GroupUser = sqlReader[$"{Table_users.groupUser}"].ToString();
-                        DataUsers.Image = sqlReader[$"{Table_users.image}"].ToString();
-                        if (sqlReader[$"{Table_users.groupUser}"].ToString() == "ADMIN")
+                        using (var reader = command.ExecuteReader())
                         {
-                            Form fMain = new MainAdminForm();
-                            fMain.Show();
-                            fMain.FormClosed += new FormClosedEventHandler(Form_FormClosed);
-                            Hide();
+                            while (reader.Read())
+                            {
+                                DataUsers.Family    = reader[$"{Table_users.family}"].ToString();
+                                DataUsers.Name      = reader[$"{Table_users.name}"].ToString();
+                                DataUsers.Father    = reader[$"{Table_users.father}"].ToString();
+                                DataUsers.Initials  = reader[$"{Table_users.initials}"].ToString();
+                                DataUsers.Number    = reader[$"{Table_users.number}"].ToString();
+                                DataUsers.Email     = reader[$"{Table_users.email}"].ToString();
+                                DataUsers.Depart    = reader[$"{Table_users.depart}"].ToString();
+                                DataUsers.Position  = reader[$"{Table_users.position}"].ToString();
+                                DataUsers.Login     = reader[$"{Table_users.login}"].ToString();
+                                DataUsers.Pass      = reader[$"{Table_users.pass}"].ToString();
+                                DataUsers.GroupUser = reader[$"{Table_users.groupUser}"].ToString();
+                                DataUsers.Image     = reader[$"{Table_users.image}"].ToString();
+
+                                string group = reader[$"{Table_users.groupUser}"].ToString();
+                                reader.Close();
+
+                                Form fMain;
+                                if (group == "ADMIN")
+                                    fMain = new MainAdminForm();
+                                else if (group == "WORKER")
+                                    fMain = new MainWorkerForm();
+                                else
+                                    fMain = new MainUserForm();
+
+                                fMain.Show();
+                                fMain.FormClosed += new FormClosedEventHandler(Form_FormClosed);
+                                Hide();
+
+                                File.AppendAllText(Logs.file,
+                                    $"[Вход]{DataUsers.Initials} ({thisDay:dd.MM.yyyy HH:mm})");
+                                File.AppendAllText(Logs.file, Environment.NewLine);
+                                CheckValidatePassword();
+                                return;
+                            }
                         }
-                        else if (sqlReader[$"{Table_users.groupUser}"].ToString() == "WORKER")
-                        {
-                            Form fMain = new MainWorkerForm();
-                            fMain.Show();
-                            fMain.FormClosed += new FormClosedEventHandler(Form_FormClosed);
-                            Hide();
-                        }
-                        else if (sqlReader[$"{Table_users.groupUser}"].ToString() == "USER")
-                        {
-                            Form fMain = new MainUserForm();
-                            fMain.Show();
-                            fMain.FormClosed += new FormClosedEventHandler(Form_FormClosed);
-                            Hide();
-                        }
-                        File.AppendAllText(Logs.file, $"[Вход]{DataUsers.Initials} ({thisDay:dd.MM.yyyy HH:mm})");
-                        File.AppendAllText(Logs.file, Environment.NewLine);
-                        CheckValidatePassword();
+                    }
+                    else
+                    {
+                        MessageBoxUI.Show("Неверный логин или пароль",
+                            "Ошибка авторизации", "Error");
                     }
                 }
-                else
+                catch (Exception ex)
                 {
-                    MessageBoxUI.Show("Неверный логин или пароль", "Ошибка авторизации", "Error");
+                    MessageBoxUI.Show($"{ex.Message}", $"{ex.Source}", "Error");
                 }
-            }
-            catch (Exception ex)
-            {
-                MessageBoxUI.Show($"{ex.Message}", $"{ex.Source}", "Error");
-            }
-            finally
-            {
-                sqlReader?.Close();
             }
         }
         #endregion
