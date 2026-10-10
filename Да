@@ -1,26 +1,942 @@
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Тип "MainAdminForm" уже содержит определение для "thisDay".
-Тип "MainAdminForm" уже содержит определение для "DB".
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Неоднозначность между "MainAdminForm.DB" и "MainAdminForm.DB"
-Не удалось найти тип или имя пространства имен "DataTime" (возможно, отсутствует директива using или ссылка на сборку).
-Имя "connectionString" не существует в текущем контексте.
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Data.SQLite;
+using System.Drawing;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+using Excel = Microsoft.Office.Interop.Excel;
+
+namespace SupportDesk.forms
+{
+    public partial class MainAdminForm : Form
+    {
+        #region Настройка формы
+        public const int WM_NCLBUTTONDOWN = 0xA1;
+        public const int HT_CAPTION = 0x2;
+        [DllImportAttribute("user32.dll")]
+        public static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
+        [DllImportAttribute("user32.dll")]
+        public static extern bool ReleaseCapture();
+        #endregion
+
+        #region Локальный переменные
+        // Единственное объявление DB
+        private SQLiteConnection DB;
+
+        // Единственное объявление thisDay
+        private readonly DateTime thisDay = DateTime.Now;
+
+        // Строка подключения — используется методами LoadAllEvents и др.
+        private readonly string connectionString = Database.connectionString;
+        #endregion
+
+        [Obsolete]
+        public MainAdminForm()
+        {
+            InitializeComponent();
+        }
+
+        private async void MainAdminForm_Load(object sender, EventArgs e)
+        {
+            DB = new SQLiteConnection(Database.connectionString);
+            await DB.OpenAsync();
+
+            labelName.Text = DataUsers.Name + " " + DataUsers.Father;
+            comboBoxExecutors.SelectedItem = "Все пользователи";
+            comboBoxTypeJob.SelectedItem = "Все работы";
+            comboBoxCabinets.SelectedItem = "Все кабинеты";
+            LoadingExecutors();
+            LoadingStatus();
+            comboBoxRequest.SelectedItem = "Новая";
+            LoadingTypeJob();
+            LoadingCabinets();
+            LoadingRequests();
+            LoadingUsers();
+            LoadingInventory();
+            LoadingConfigWidgets();
+            LoadingImageAvatar();
+
+            // Загрузка списка мероприятий в dgvAllEvents
+            LoadAllEvents();
+        }
+
+        #region Загрузка БД
+
+        private async void FullList()
+        {
+            comboBoxExecutors.SelectedItem = "Все пользователи";
+            dataGridViewRequests.Rows.Clear();
+            SQLiteDataReader sqlReader = null;
+            SQLiteCommand command = new SQLiteCommand($"SELECT * FROM [{Table_requests.main}]", DB);
+            List<string[]> data = new List<string[]>();
+            try
+            {
+                sqlReader = (SQLiteDataReader)await command.ExecuteReaderAsync();
+                while (await sqlReader.ReadAsync())
+                {
+                    data.Add(new string[8]);
+                    data[data.Count - 1][0] = Convert.ToString($"{sqlReader[$"{Table_requests.theDate}"]}");
+                    data[data.Count - 1][1] = Convert.ToString($"{sqlReader[$"{Table_requests.time}"]}");
+                    data[data.Count - 1][2] = Convert.ToString($"{sqlReader[$"{Table_requests.user}"]}");
+                    data[data.Count - 1][3] = Convert.ToString($"{sqlReader[$"{Table_requests.kabinet}"]}");
+                    data[data.Count - 1][4] = Convert.ToString($"{sqlReader[$"{Table_requests.discription}"]}");
+                    data[data.Count - 1][5] = Convert.ToString($"{sqlReader[$"{Table_requests.status}"]}");
+                    data[data.Count - 1][6] = Convert.ToString($"{sqlReader[$"{Table_requests.executor}"]}");
+                    data[data.Count - 1][7] = Convert.ToString($"{sqlReader[$"{Table_requests.executor2}"]}");
+                }
+
+                foreach (string[] s in data)
+                    dataGridViewRequests.Rows.Add(s);
+
+                ColorizeGrid();
+
+                dataGridViewRequests.ClearSelection();
+                labelReqExecutor.Text = $"Задачи исполнителя: {dataGridViewRequests.Rows.Count}";
+            }
+            catch (Exception ex)
+            {
+                MessageBoxUI.Show($"{ex.Message}", $"{ex.Source}", "Error");
+            }
+            finally
+            {
+                sqlReader?.Close();
+            }
+        }
+
+        private async void FullListStatus()
+        {
+            comboBoxExecutors.SelectedItem = "Все пользователи";
+            dataGridViewRequests.Rows.Clear();
+            SQLiteDataReader sqlReader = null;
+            SQLiteCommand command = new SQLiteCommand($"SELECT * FROM [{Table_requests.main}] WHERE {Table_requests.status} = @status", DB);
+            command.Parameters.AddWithValue("status", comboBoxRequest.Text);
+            List<string[]> data = new List<string[]>();
+            try
+            {
+                sqlReader = (SQLiteDataReader)await command.ExecuteReaderAsync();
+                while (await sqlReader.ReadAsync())
+                {
+                    data.Add(new string[8]);
+                    data[data.Count - 1][0] = Convert.ToString($"{sqlReader[$"{Table_requests.theDate}"]}");
+                    data[data.Count - 1][1] = Convert.ToString($"{sqlReader[$"{Table_requests.time}"]}");
+                    data[data.Count - 1][2] = Convert.ToString($"{sqlReader[$"{Table_requests.user}"]}");
+                    data[data.Count - 1][3] = Convert.ToString($"{sqlReader[$"{Table_requests.kabinet}"]}");
+                    data[data.Count - 1][4] = Convert.ToString($"{sqlReader[$"{Table_requests.discription}"]}");
+                    data[data.Count - 1][5] = Convert.ToString($"{sqlReader[$"{Table_requests.status}"]}");
+                    data[data.Count - 1][6] = Convert.ToString($"{sqlReader[$"{Table_requests.executor}"]}");
+                    data[data.Count - 1][7] = Convert.ToString($"{sqlReader[$"{Table_requests.executor2}"]}");
+                }
+
+                foreach (string[] s in data)
+                    dataGridViewRequests.Rows.Add(s);
+
+                ColorizeGrid();
+
+                dataGridViewRequests.ClearSelection();
+                labelReqExecutor.Text = $"Задачи исполнителя: {dataGridViewRequests.Rows.Count}";
+            }
+            catch (Exception ex)
+            {
+                MessageBoxUI.Show($"{ex.Message}", $"{ex.Source}", "Error");
+            }
+            finally
+            {
+                sqlReader?.Close();
+            }
+        }
+
+        // Общий метод подсветки строк заявок — чтобы не дублировать код 6 раз
+        private void ColorizeGrid()
+        {
+            for (int i = 0; i < dataGridViewRequests.RowCount; i++)
+            {
+                string status = Convert.ToString(dataGridViewRequests["ColumnStatus", i].Value);
+                Color c;
+
+                if (status == "Выполнена") c = Color.Lime;
+                else if (status == "На подтверждении") c = Color.Yellow;
+                else if (status == "Отклонена" || status == "Не выполнена") c = Color.Red;
+                else c = Color.White;
+
+                foreach (DataGridViewCell cell in dataGridViewRequests.Rows[i].Cells)
+                    cell.Style.BackColor = c;
+            }
+        }
+
+        private async void LoadingStatus()
+        {
+            SQLiteDataReader sqlReader = null;
+            SQLiteCommand command = new SQLiteCommand($"SELECT * FROM [{Table_status.main}]", DB);
+            try
+            {
+                sqlReader = (SQLiteDataReader)await command.ExecuteReaderAsync();
+                while (await sqlReader.ReadAsync())
+                {
+                    string status = Convert.ToString($"{sqlReader[$"{Table_status.status}"]}");
+                    comboBoxRequest.Items.Add(status);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBoxUI.Show($"{ex.Message}", $"{ex.Source}", "Error");
+            }
+            finally { sqlReader?.Close(); }
+        }
+
+        private async void LoadingCabinets()
+        {
+            SQLiteDataReader sqlReader = null;
+            SQLiteCommand command = new SQLiteCommand($"SELECT * FROM [{Table_cabinets.main}]", DB);
+            try
+            {
+                sqlReader = (SQLiteDataReader)await command.ExecuteReaderAsync();
+                while (await sqlReader.ReadAsync())
+                {
+                    string cabinet = Convert.ToString($"{sqlReader[$"{Table_cabinets.cabinet}"]}");
+                    comboBoxCabinets.Items.Add(cabinet);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBoxUI.Show($"{ex.Message}", $"{ex.Source}", "Error");
+            }
+            finally { sqlReader?.Close(); }
+        }
+
+        private async void LoadingTypeJob()
+        {
+            SQLiteDataReader sqlReader = null;
+            SQLiteCommand command = new SQLiteCommand($"SELECT * FROM [{Table_typeJob.main}]", DB);
+            try
+            {
+                sqlReader = (SQLiteDataReader)await command.ExecuteReaderAsync();
+                while (await sqlReader.ReadAsync())
+                {
+                    string typeJob = Convert.ToString($"{sqlReader[$"{Table_typeJob.typeJob}"]}");
+                    comboBoxTypeJob.Items.Add(typeJob);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBoxUI.Show($"{ex.Message}", $"{ex.Source}", "Error");
+            }
+            finally { sqlReader?.Close(); }
+        }
+
+        private async void LoadingExecutors()
+        {
+            SQLiteDataReader sqlReader = null;
+            SQLiteCommand command = new SQLiteCommand($"SELECT * FROM [{Table_executor.main}]", DB);
+            try
+            {
+                sqlReader = (SQLiteDataReader)await command.ExecuteReaderAsync();
+                while (await sqlReader.ReadAsync())
+                {
+                    string initials = Convert.ToString($"{sqlReader[$"{Table_executor.initials}"]}");
+                    comboBoxExecutors.Items.Add(initials);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBoxUI.Show($"{ex.Message}", $"{ex.Source}", "Error");
+            }
+            finally { sqlReader?.Close(); }
+        }
+
+        private void LoadingRequests()
+        {
+            SQLiteCommand command = new SQLiteCommand($"SELECT COUNT(*) FROM [{Table_requests.main}]", DB);
+            labelAllRequests.Text = $"{command.ExecuteScalar()}";
+
+            SQLiteCommand command2 = new SQLiteCommand($"SELECT COUNT(*) FROM [{Table_requests.main}] WHERE {Table_requests.status} = @status", DB);
+            command2.Parameters.AddWithValue("status", "Выполнена");
+            labelRequestReady.Text = $"{command2.ExecuteScalar()}";
+
+            SQLiteCommand command3 = new SQLiteCommand($"SELECT COUNT(*) FROM [{Table_requests.main}] WHERE {Table_requests.status} = @status", DB);
+            command3.Parameters.AddWithValue("status", "Новая");
+            SQLiteCommand command4 = new SQLiteCommand($"SELECT COUNT(*) FROM [{Table_requests.main}] WHERE {Table_requests.status} = @status", DB);
+            command4.Parameters.AddWithValue("status", "В работе");
+            labelRequestNew.Text = $"{command3.ExecuteScalar()}/{command4.ExecuteScalar()}";
+        }
+
+        private void LoadingUsers()
+        {
+            SQLiteCommand command = new SQLiteCommand($"SELECT COUNT(*) FROM [{Table_users.main}]", DB);
+            labelAllUsers.Text = $"{command.ExecuteScalar()}";
+        }
+
+        private void LoadingInventory()
+        {
+            SQLiteCommand command = new SQLiteCommand($"SELECT COUNT(*) FROM [{Table_inventory.main}]", DB);
+            labelAllInventory.Text = $"{command.ExecuteScalar()}";
+        }
+
+        private void LoadingConfigWidgets()
+        {
+            if (WidgetsConfig.Calendar == false)
+            {
+                monthCalendar.Visible = false;
+                panel4.Location = new Point(WidgetsConfig.locationFirstWidget, 26);
+                panel5.Location = new Point(WidgetsConfig.locationTwoWidget, 26);
+            }
+            else
+            {
+                monthCalendar.Visible = true;
+            }
+
+            if (WidgetsConfig.AllUsers == false)
+            {
+                panel4.Visible = false;
+                panel5.Location = new Point(WidgetsConfig.locationTwoWidget, 26);
+            }
+            else
+            {
+                panel4.Visible = true;
+            }
+
+            if (WidgetsConfig.Calendar == false && WidgetsConfig.AllUsers == false)
+            {
+                monthCalendar.Visible = false;
+                panel4.Visible = false;
+                panel5.Location = new Point(WidgetsConfig.locationFirstWidget, 26);
+            }
+
+            panel5.Visible = WidgetsConfig.AllInventory != false;
+
+            if (WidgetsConfig.Calendar == false && WidgetsConfig.AllUsers == false && WidgetsConfig.AllInventory == false)
+            {
+                groupBox1.Size = new Size(982, WidgetsConfig.sizeGroupBoxOffWidgets);
+                groupBox1.Location = new Point(210, WidgetsConfig.locationGroupBoxOffWidgets);
+            }
+            else
+            {
+                groupBox1.Size = new Size(982, WidgetsConfig.sizeGroupBoxOnWidgets);
+                groupBox1.Location = new Point(210, WidgetsConfig.locationGroupBoxOnWidgets);
+            }
+        }
+
+        private void LoadingImageAvatar()
+        {
+            string image = AvatarUsers.CheckImage(DataUsers.Gender, DataUsers.GroupUser, DataUsers.Image);
+            if (image == "Error")
+            {
+                MessageBoxUI.Show("Изображение профиля изменено/удалено", "Изображение профиля", "Error");
+            }
+            else
+            {
+                pictureBox2.ImageLocation = image;
+            }
+        }
+        #endregion
+
+        #region Управление формой
+        private void ButtonExit_Click(object sender, EventArgs e) => Close();
+
+        private void ExpUIButtonIconMaximaze_Click(object sender, EventArgs e)
+        {
+            WindowState = WindowState == FormWindowState.Normal
+                ? FormWindowState.Maximized
+                : FormWindowState.Normal;
+        }
+
+        private void ButtonMin_Click(object sender, EventArgs e) => WindowState = FormWindowState.Minimized;
+
+        private void FormControl(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                ReleaseCapture();
+                SendMessage(Handle, WM_NCLBUTTONDOWN, HT_CAPTION, 0);
+            }
+        }
+
+        private void MainForm_FormClosed(object sender, FormClosedEventArgs e) => Close();
+        #endregion
+
+        #region Справка
+        private void ExpUIButtonIconAbout_Click(object sender, EventArgs e)
+        {
+            if (DataRequests.IsOpen) return;
+            Form fAbout = new AboutLicensesForm();
+            fAbout.Show();
+            DataRequests.IsOpen = true;
+        }
+        #endregion
+
+        #region Настройки
+        [Obsolete]
+        private void ExpUIButtonIconSettings_Click(object sender, EventArgs e)
+        {
+            Form fSettings = new SettingForm();
+            fSettings.Show();
+            fSettings.FormClosed += new FormClosedEventHandler(MainForm_FormClosed);
+            Hide();
+        }
+        #endregion
+
+        #region Личный кабинет
+        [Obsolete]
+        private void ExpUIButtonIconDataUser_Click(object sender, EventArgs e)
+        {
+            Form fDataArea = new UserDataForm();
+            fDataArea.Show();
+            fDataArea.FormClosed += new FormClosedEventHandler(MainForm_FormClosed);
+            Hide();
+        }
+        #endregion
+
+        #region Сменить пользователя
+        [Obsolete]
+        private void ExpUIButtonIconLogout_Click(object sender, EventArgs e)
+        {
+            DataUsers.GroupUser = "";
+            Form fLogin = new LoginForm();
+            fLogin.Show();
+            fLogin.FormClosed += new FormClosedEventHandler(MainForm_FormClosed);
+            Hide();
+        }
+        #endregion
+
+        #region Пользователи
+        [Obsolete]
+        private void ExpUIButtonUsers_Click(object sender, EventArgs e)
+        {
+            Form fUsers = new UsersForm();
+            fUsers.Show();
+            fUsers.FormClosed += new FormClosedEventHandler(MainForm_FormClosed);
+            Hide();
+        }
+        #endregion
+
+        #region Картриджи
+        [Obsolete]
+        private void ExpUIButtonPrinters_Click(object sender, EventArgs e)
+        {
+            Form fCartridges = new CartridgesForm();
+            fCartridges.Show();
+            fCartridges.FormClosed += new FormClosedEventHandler(MainForm_FormClosed);
+            Hide();
+        }
+        #endregion
+
+        #region Лицензии
+        [Obsolete]
+        private void ExpUIButtonLicenses_Click(object sender, EventArgs e)
+        {
+            Form fLicenses = new LicensesForm();
+            fLicenses.Show();
+            fLicenses.FormClosed += new FormClosedEventHandler(MainForm_FormClosed);
+            Hide();
+        }
+        #endregion
+
+        #region Оборудование
+        [Obsolete]
+        private void ExpUIButtonInventory_Click(object sender, EventArgs e)
+        {
+            Form fInventory = new InventoryForm();
+            fInventory.Show();
+            fInventory.FormClosed += new FormClosedEventHandler(MainForm_FormClosed);
+            Hide();
+        }
+        #endregion
+
+        #region Пароли
+        [Obsolete]
+        private void ExpUIButtonPasswords_Click(object sender, EventArgs e)
+        {
+            Form fPasswords = new PasswordsForm();
+            fPasswords.Show();
+            fPasswords.FormClosed += new FormClosedEventHandler(MainForm_FormClosed);
+            Hide();
+        }
+        #endregion
+
+        #region Внешние контакты
+        [Obsolete]
+        private void ExpUIButtonContacts_Click(object sender, EventArgs e)
+        {
+            Form fContacts = new ContactsForm();
+            fContacts.Show();
+            fContacts.FormClosed += new FormClosedEventHandler(MainForm_FormClosed);
+            Hide();
+        }
+        #endregion
+
+        #region Справочник
+        [Obsolete]
+        private void ExpUIButtonDatabase_Click(object sender, EventArgs e)
+        {
+            Form fDatabase = new DirectoryForm();
+            fDatabase.Show();
+            fDatabase.FormClosed += new FormClosedEventHandler(MainForm_FormClosed);
+            Hide();
+        }
+        #endregion
+
+        #region Отчет по задачам
+        private async void ExpUIButtonExcel_Click(object sender, EventArgs e)
+        {
+            Excel.Application ex = new Excel.Application
+            {
+                SheetsInNewWorkbook = ExcelConfig.numberOfSheets
+            };
+            Excel.Workbook workBook = ex.Workbooks.Add(Type.Missing);
+            ex.DisplayAlerts = false;
+            Excel.Worksheet sheet = (Excel.Worksheet)ex.Worksheets.get_Item(1);
+            sheet.Name = ExcelConfig.nameSheets;
+
+            sheet.Cells[1, 1] = "Дата создания";
+            sheet.Cells[1, 2] = "Срок";
+            sheet.Cells[1, 3] = "От кого";
+            sheet.Cells[1, 4] = "Кабинет";
+            sheet.Cells[1, 5] = "Описание работы";
+            sheet.Cells[1, 6] = "Статус задачи";
+            sheet.Cells[1, 7] = "Исполнитель";
+            sheet.Cells[1, 8] = "Дублер";
+
+            SQLiteDataReader sqlReader = null;
+            SQLiteCommand command = new SQLiteCommand($"SELECT * FROM [{Table_requests.main}]", DB);
+            int row = 1;
+            try
+            {
+                sqlReader = (SQLiteDataReader)await command.ExecuteReaderAsync();
+                while (await sqlReader.ReadAsync())
+                {
+                    row++;
+                    sheet.Cells[row, "A"].Value = Convert.ToString($"{sqlReader[$"{Table_requests.theDate}"]}");
+                    sheet.Cells[row, "B"].Value = Convert.ToString($"{sqlReader[$"{Table_requests.time}"]}");
+                    sheet.Cells[row, "C"].Value = Convert.ToString($"{sqlReader[$"{Table_requests.user}"]}");
+                    sheet.Cells[row, "D"].Value = Convert.ToString($"{sqlReader[$"{Table_requests.kabinet}"]}");
+                    sheet.Cells[row, "E"].Value = Convert.ToString($"{sqlReader[$"{Table_requests.discription}"]}");
+                    sheet.Cells[row, "F"].Value = Convert.ToString($"{sqlReader[$"{Table_requests.status}"]}");
+                    sheet.Cells[row, "G"].Value = Convert.ToString($"{sqlReader[$"{Table_requests.executor}"]}");
+                    sheet.Cells[row, "H"].Value = Convert.ToString($"{sqlReader[$"{Table_requests.executor2}"]}");
+                }
+            }
+            catch (Exception exp)
+            {
+                MessageBoxUI.Show($"{exp.Message}", $"{exp.Source}", "Error");
+                return;
+            }
+            finally { sqlReader?.Close(); }
+
+            sheet.Cells.Font.Name = "Times New Roman";
+            sheet.Cells.Font.Size = 10;
+            sheet.Cells.Borders.get_Item(Excel.XlBordersIndex.xlEdgeBottom).LineStyle = Excel.XlLineStyle.xlContinuous;
+            sheet.Cells.Borders.get_Item(Excel.XlBordersIndex.xlEdgeRight).LineStyle = Excel.XlLineStyle.xlContinuous;
+            sheet.Cells.Borders.get_Item(Excel.XlBordersIndex.xlInsideHorizontal).LineStyle = Excel.XlLineStyle.xlContinuous;
+            sheet.Cells.Borders.get_Item(Excel.XlBordersIndex.xlInsideVertical).LineStyle = Excel.XlLineStyle.xlContinuous;
+            sheet.Cells.Borders.get_Item(Excel.XlBordersIndex.xlEdgeTop).LineStyle = Excel.XlLineStyle.xlContinuous;
+            sheet.Cells.EntireColumn.AutoFit();
+            sheet.Cells.EntireRow.AutoFit();
+            sheet.Cells.WrapText = true;
+            ex.Visible = true;
+        }
+        #endregion
+
+        #region Закрыть задачу
+        private async void ExpUIButtonIconCloseTicket_Click(object sender, EventArgs e)
+        {
+            if (dataGridViewRequests.SelectedCells.Count > 0)
+            {
+                int selectedrowindex = dataGridViewRequests.SelectedCells[0].RowIndex;
+                DataGridViewRow selectedRow = dataGridViewRequests.Rows[selectedrowindex];
+                string data = Convert.ToString(selectedRow.Cells["ColumnData"].Value);
+                string user = Convert.ToString(selectedRow.Cells["ColumnFio"].Value);
+                string cabinet = Convert.ToString(selectedRow.Cells["ColumnKab"].Value);
+                string disc = Convert.ToString(selectedRow.Cells["ColumnDisc"].Value);
+
+                SQLiteDataReader sqlReader = null;
+                SQLiteCommand commandInsert = new SQLiteCommand($"SELECT * FROM [{Table_requests.main}] WHERE [{Table_requests.theDate}] = @theDate AND [{Table_requests.user}] = @user AND [{Table_requests.kabinet}] = @cabinet AND [{Table_requests.discription}] = @disc", DB);
+                commandInsert.Parameters.AddWithValue("theDate", data);
+                commandInsert.Parameters.AddWithValue("user", user);
+                commandInsert.Parameters.AddWithValue("cabinet", cabinet);
+                commandInsert.Parameters.AddWithValue("disc", disc);
+                try
+                {
+                    sqlReader = (SQLiteDataReader)await commandInsert.ExecuteReaderAsync();
+                    while (await sqlReader.ReadAsync())
+                    {
+                        DataRequests.Kod = Convert.ToString($"{sqlReader["id"]}");
+                        DataRequests.Tema = Convert.ToString($"{sqlReader[$"{Table_requests.tema}"]}");
+                        DataRequests.TheDate = Convert.ToString($"{sqlReader[$"{Table_requests.theDate}"]}");
+                        DataRequests.Type = Convert.ToString($"{sqlReader[$"{Table_requests.typeProblem}"]}");
+                        DataRequests.User = Convert.ToString($"{sqlReader[$"{Table_requests.user}"]}");
+                        DataRequests.Kabinet = Convert.ToString($"{sqlReader[$"{Table_requests.kabinet}"]}");
+                        DataRequests.Time = Convert.ToString($"{sqlReader[$"{Table_requests.time}"]}");
+                        DataRequests.Discription = Convert.ToString($"{sqlReader[$"{Table_requests.discription}"]}");
+                        DataRequests.Executor = Convert.ToString($"{sqlReader[$"{Table_requests.executor}"]}");
+                        DataRequests.Result = Convert.ToString($"{sqlReader["result"]}");
+                        DataRequests.NameFile = Convert.ToString($"{sqlReader[$"{Table_requests.nameFile}"]}");
+                        DataRequests.PathTo = Convert.ToString($"{sqlReader[$"{Table_requests.pathFile}"]}");
+                        DataRequests.NameFileResult = Convert.ToString($"{sqlReader[$"{Table_requests.nameFileResult}"]}");
+                        DataRequests.PathResultTo = Convert.ToString($"{sqlReader[$"{Table_requests.pathFileResult}"]}");
+
+                        Form fCloseTicket = new CloseRequestForm();
+                        fCloseTicket.Show();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBoxUI.Show($"{ex.Message}", $"{ex.Source}", "Error");
+                }
+                finally { sqlReader?.Close(); }
+            }
+        }
+        #endregion
+
+        #region Создать задачу
+        [Obsolete]
+        private void ExpUIButtonIconCreateTicket_Click(object sender, EventArgs e)
+        {
+            Form fCreateTicket = new CreateNewTicketForm();
+            fCreateTicket.Show();
+            fCreateTicket.FormClosed += new FormClosedEventHandler(MainForm_FormClosed);
+            Hide();
+        }
+        #endregion
+
+        #region Обновить
+        private void ExpUIButtonIconRefresh_Click(object sender, EventArgs e)
+        {
+            if (comboBoxRequest.Text == "Все задачи")
+                FullList();
+            else
+                FullListStatus();
+
+            LoadingRequests();
+            comboBoxExecutors.SelectedItem = "Все пользователи";
+            comboBoxTypeJob.SelectedItem = "Все работы";
+            comboBoxCabinets.SelectedItem = "Все кабинеты";
+
+            // Обновляем и таблицу мероприятий
+            LoadAllEvents();
+        }
+        #endregion
+
+        #region Фильтр по статусу задач
+        private void ComboBoxRequest_TextChanged(object sender, EventArgs e)
+        {
+            if (comboBoxRequest.Text == "Все задачи")
+                FullList();
+            else
+                FullListStatus();
+        }
+        #endregion
+
+        #region Фильтр по исполнителям
+        private async void ComboBoxExecutors_TextChanged(object sender, EventArgs e)
+        {
+            if (comboBoxExecutors.Text == "Все пользователи")
+            {
+                FullList();
+            }
+            else
+            {
+                dataGridViewRequests.Rows.Clear();
+                SQLiteDataReader sqlReader = null;
+                SQLiteCommand command = new SQLiteCommand($"SELECT * FROM [{Table_requests.main}] WHERE {Table_requests.executor} = @executor", DB);
+                command.Parameters.AddWithValue("executor", comboBoxExecutors.Text);
+                List<string[]> data = new List<string[]>();
+                try
+                {
+                    sqlReader = (SQLiteDataReader)await command.ExecuteReaderAsync();
+                    while (await sqlReader.ReadAsync())
+                    {
+                        data.Add(new string[8]);
+                        data[data.Count - 1][0] = Convert.ToString($"{sqlReader[$"{Table_requests.theDate}"]}");
+                        data[data.Count - 1][1] = Convert.ToString($"{sqlReader[$"{Table_requests.time}"]}");
+                        data[data.Count - 1][2] = Convert.ToString($"{sqlReader[$"{Table_requests.user}"]}");
+                        data[data.Count - 1][3] = Convert.ToString($"{sqlReader[$"{Table_requests.kabinet}"]}");
+                        data[data.Count - 1][4] = Convert.ToString($"{sqlReader[$"{Table_requests.discription}"]}");
+                        data[data.Count - 1][5] = Convert.ToString($"{sqlReader[$"{Table_requests.status}"]}");
+                        data[data.Count - 1][6] = Convert.ToString($"{sqlReader[$"{Table_requests.executor}"]}");
+                        data[data.Count - 1][7] = Convert.ToString($"{sqlReader[$"{Table_requests.executor2}"]}");
+                    }
+
+                    foreach (string[] s in data)
+                        dataGridViewRequests.Rows.Add(s);
+
+                    ColorizeGrid();
+                    dataGridViewRequests.ClearSelection();
+                    labelReqExecutor.Text = $"Задачи исполнителя: {dataGridViewRequests.Rows.Count}";
+                }
+                catch (Exception ex)
+                {
+                    MessageBoxUI.Show($"{ex.Message}", $"{ex.Source}", "Error");
+                }
+                finally { sqlReader?.Close(); }
+            }
+        }
+        #endregion
+
+        #region Фильтр по типу работы
+        private async void ComboBoxTypeJob_TextChanged(object sender, EventArgs e)
+        {
+            if (comboBoxTypeJob.Text == "Все работы")
+            {
+                FullList();
+            }
+            else
+            {
+                dataGridViewRequests.Rows.Clear();
+                SQLiteDataReader sqlReader = null;
+                SQLiteCommand command = new SQLiteCommand($"SELECT * FROM [{Table_requests.main}] WHERE {Table_requests.typeProblem} = @typeProblem", DB);
+                command.Parameters.AddWithValue("typeProblem", comboBoxTypeJob.Text);
+                List<string[]> data = new List<string[]>();
+                try
+                {
+                    sqlReader = (SQLiteDataReader)await command.ExecuteReaderAsync();
+                    while (await sqlReader.ReadAsync())
+                    {
+                        data.Add(new string[8]);
+                        data[data.Count - 1][0] = Convert.ToString($"{sqlReader[$"{Table_requests.theDate}"]}");
+                        data[data.Count - 1][1] = Convert.ToString($"{sqlReader[$"{Table_requests.time}"]}");
+                        data[data.Count - 1][2] = Convert.ToString($"{sqlReader[$"{Table_requests.user}"]}");
+                        data[data.Count - 1][3] = Convert.ToString($"{sqlReader[$"{Table_requests.kabinet}"]}");
+                        data[data.Count - 1][4] = Convert.ToString($"{sqlReader[$"{Table_requests.discription}"]}");
+                        data[data.Count - 1][5] = Convert.ToString($"{sqlReader[$"{Table_requests.status}"]}");
+                        data[data.Count - 1][6] = Convert.ToString($"{sqlReader[$"{Table_requests.executor}"]}");
+                        data[data.Count - 1][7] = Convert.ToString($"{sqlReader[$"{Table_requests.executor2}"]}");
+                    }
+
+                    foreach (string[] s in data)
+                        dataGridViewRequests.Rows.Add(s);
+
+                    ColorizeGrid();
+                    dataGridViewRequests.ClearSelection();
+                    labelReqExecutor.Text = $"Задачи исполнителя: {dataGridViewRequests.Rows.Count}";
+                }
+                catch (Exception ex)
+                {
+                    MessageBoxUI.Show($"{ex.Message}", $"{ex.Source}", "Error");
+                }
+                finally { sqlReader?.Close(); }
+            }
+        }
+        #endregion
+
+        #region Фильтр по кабинетам
+        private async void ComboBoxCabinets_TextChanged(object sender, EventArgs e)
+        {
+            if (comboBoxCabinets.Text == "Все кабинеты")
+            {
+                FullList();
+            }
+            else
+            {
+                dataGridViewRequests.Rows.Clear();
+                SQLiteDataReader sqlReader = null;
+                SQLiteCommand command = new SQLiteCommand($"SELECT * FROM [{Table_requests.main}] WHERE {Table_requests.kabinet} = @cabinet", DB);
+                command.Parameters.AddWithValue("cabinet", comboBoxCabinets.Text);
+                List<string[]> data = new List<string[]>();
+                try
+                {
+                    sqlReader = (SQLiteDataReader)await command.ExecuteReaderAsync();
+                    while (await sqlReader.ReadAsync())
+                    {
+                        data.Add(new string[8]);
+                        data[data.Count - 1][0] = Convert.ToString($"{sqlReader[$"{Table_requests.theDate}"]}");
+                        data[data.Count - 1][1] = Convert.ToString($"{sqlReader[$"{Table_requests.time}"]}");
+                        data[data.Count - 1][2] = Convert.ToString($"{sqlReader[$"{Table_requests.user}"]}");
+                        data[data.Count - 1][3] = Convert.ToString($"{sqlReader[$"{Table_requests.kabinet}"]}");
+                        data[data.Count - 1][4] = Convert.ToString($"{sqlReader[$"{Table_requests.discription}"]}");
+                        data[data.Count - 1][5] = Convert.ToString($"{sqlReader[$"{Table_requests.status}"]}");
+                        data[data.Count - 1][6] = Convert.ToString($"{sqlReader[$"{Table_requests.executor}"]}");
+                        data[data.Count - 1][7] = Convert.ToString($"{sqlReader[$"{Table_requests.executor2}"]}");
+                    }
+
+                    foreach (string[] s in data)
+                        dataGridViewRequests.Rows.Add(s);
+
+                    ColorizeGrid();
+                    dataGridViewRequests.ClearSelection();
+                    labelReqExecutor.Text = $"Задачи исполнителя: {dataGridViewRequests.Rows.Count}";
+                }
+                catch (Exception ex)
+                {
+                    MessageBoxUI.Show($"{ex.Message}", $"{ex.Source}", "Error");
+                }
+                finally { sqlReader?.Close(); }
+            }
+        }
+        #endregion
+
+        #region Детальное описание задачи
+        private async void DataGridViewRequests_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Right && dataGridViewRequests.SelectedCells.Count > 0)
+            {
+                int selectedrowindex = dataGridViewRequests.SelectedCells[0].RowIndex;
+                DataGridViewRow selectedRow = dataGridViewRequests.Rows[selectedrowindex];
+                string data = Convert.ToString(selectedRow.Cells["ColumnData"].Value);
+                string user = Convert.ToString(selectedRow.Cells["ColumnFio"].Value);
+                string cabinet = Convert.ToString(selectedRow.Cells["ColumnKab"].Value);
+                string tema = Convert.ToString(selectedRow.Cells["ColumnDisc"].Value);
+
+                SQLiteDataReader sqlReader = null;
+                SQLiteCommand commandInsert = new SQLiteCommand($"SELECT * FROM [{Table_requests.main}] WHERE [{Table_requests.theDate}] = @theDate AND [{Table_requests.user}] = @user AND [{Table_requests.kabinet}] = @cabinet AND [{Table_requests.discription}]=@tema", DB);
+                commandInsert.Parameters.AddWithValue("theDate", data);
+                commandInsert.Parameters.AddWithValue("user", user);
+                commandInsert.Parameters.AddWithValue("cabinet", cabinet);
+                commandInsert.Parameters.AddWithValue("tema", tema);
+                try
+                {
+                    sqlReader = (SQLiteDataReader)await commandInsert.ExecuteReaderAsync();
+                    while (await sqlReader.ReadAsync())
+                    {
+                        DataRequests.Kod = Convert.ToString($"{sqlReader["id"]}");
+                        DataRequests.Tema = Convert.ToString($"{sqlReader[$"{Table_requests.tema}"]}");
+                        DataRequests.TheDate = Convert.ToString($"{sqlReader[$"{Table_requests.theDate}"]}");
+                        DataRequests.Type = Convert.ToString($"{sqlReader[$"{Table_requests.typeProblem}"]}");
+                        DataRequests.User = Convert.ToString($"{sqlReader[$"{Table_requests.user}"]}");
+                        DataRequests.Kabinet = Convert.ToString($"{sqlReader[$"{Table_requests.kabinet}"]}");
+                        DataRequests.Time = Convert.ToString($"{sqlReader[$"{Table_requests.time}"]}");
+                        DataRequests.Discription = Convert.ToString($"{sqlReader[$"{Table_requests.discription}"]}");
+                        DataRequests.Executor = Convert.ToString($"{sqlReader[$"{Table_requests.executor}"]}");
+                        DataRequests.Executor2 = Convert.ToString($"{sqlReader[$"{Table_requests.executor2}"]}");
+                        DataRequests.NameFile = Convert.ToString($"{sqlReader[$"{Table_requests.nameFile}"]}");
+                        DataRequests.PathTo = Convert.ToString($"{sqlReader[$"{Table_requests.pathFile}"]}");
+
+                        Form fDataRequest = new DataTicketForm();
+                        fDataRequest.Show();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBoxUI.Show($"{ex.Message}", $"{ex.Source}", "Error");
+                }
+                finally { sqlReader?.Close(); }
+            }
+        }
+        #endregion
+
+        #region Виджет календаря
+        private async void MonthCalendar_DateSelected(object sender, DateRangeEventArgs e)
+        {
+            string date = monthCalendar.SelectionRange.Start.ToShortDateString();
+            dataGridViewRequests.Rows.Clear();
+            SQLiteDataReader sqlReader = null;
+            SQLiteCommand command = new SQLiteCommand($"SELECT * FROM [{Table_requests.main}] WHERE {Table_requests.time} LIKE @date", DB);
+            command.Parameters.AddWithValue("date", $"%{date}%");
+            List<string[]> data = new List<string[]>();
+            try
+            {
+                sqlReader = (SQLiteDataReader)await command.ExecuteReaderAsync();
+                while (await sqlReader.ReadAsync())
+                {
+                    data.Add(new string[8]);
+                    data[data.Count - 1][0] = Convert.ToString($"{sqlReader[$"{Table_requests.theDate}"]}");
+                    data[data.Count - 1][1] = Convert.ToString($"{sqlReader[$"{Table_requests.time}"]}");
+                    data[data.Count - 1][2] = Convert.ToString($"{sqlReader[$"{Table_requests.user}"]}");
+                    data[data.Count - 1][3] = Convert.ToString($"{sqlReader[$"{Table_requests.kabinet}"]}");
+                    data[data.Count - 1][4] = Convert.ToString($"{sqlReader[$"{Table_requests.discription}"]}");
+                    data[data.Count - 1][5] = Convert.ToString($"{sqlReader[$"{Table_requests.status}"]}");
+                    data[data.Count - 1][6] = Convert.ToString($"{sqlReader[$"{Table_requests.executor}"]}");
+                    data[data.Count - 1][7] = Convert.ToString($"{sqlReader[$"{Table_requests.executor2}"]}");
+                }
+
+                foreach (string[] s in data)
+                    dataGridViewRequests.Rows.Add(s);
+
+                ColorizeGrid();
+                dataGridViewRequests.ClearSelection();
+                labelReqExecutor.Text = $"Задачи исполнителя: {dataGridViewRequests.Rows.Count}";
+            }
+            catch (Exception ex)
+            {
+                MessageBoxUI.Show($"{ex.Message}", $"{ex.Source}", "Error");
+            }
+            finally { sqlReader?.Close(); }
+        }
+        #endregion
+
+        #region Календарь
+        [Obsolete]
+        private void ExpUIButtonIconCalendar_Click(object sender, EventArgs e)
+        {
+            Form fCalendar = new MonthCalendarForm();
+            fCalendar.Show();
+            fCalendar.FormClosed += new FormClosedEventHandler(MainForm_FormClosed);
+            Hide();
+        }
+        #endregion
+
+        private void ButtonMer_Click(object sender, EventArgs e)
+        {
+            Form fUse = new Form1();
+            fUse.Show();
+            fUse.FormClosed += new FormClosedEventHandler(MainForm_FormClosed);
+            Hide();
+        }
+
+        private void dataGridViewRequests_CellContentClick(object sender, DataGridViewCellEventArgs e) { }
+
+        // ============================================================
+        //         ПОКАЗ СПИСКА МЕРОПРИЯТИЙ В АДМИНКЕ
+        // ============================================================
+        private void LoadAllEvents()
+        {
+            try
+            {
+                using (var conn = new SQLiteConnection(connectionString))
+                {
+                    conn.Open();
+
+                    // Создаём таблицу, если её ещё нет
+                    string createSql = @"CREATE TABLE IF NOT EXISTS Events (
+                                             Id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                                             Name        TEXT NOT NULL,
+                                             Date        TEXT NOT NULL,
+                                             Place       TEXT,
+                                             Description TEXT,
+                                             Completed   INTEGER NOT NULL DEFAULT 0
+                                         );";
+                    using (var createCmd = new SQLiteCommand(createSql, conn))
+                        createCmd.ExecuteNonQuery();
+
+                    // Читаем все мероприятия
+                    string sql = @"SELECT Name        AS Название,
+                                          Date        AS Дата,
+                                          Place       AS Место,
+                                          Description AS Описание,
+                                          Completed   AS Проведено
+                                   FROM Events
+                                   ORDER BY Date;";
+
+                    using (var adapter = new SQLiteDataAdapter(sql, conn))
+                    {
+                        var dt = new DataTable();
+                        adapter.Fill(dt);
+
+                        if (dt.Columns.Contains("Проведено"))
+                        {
+                            int idx = dt.Columns["Проведено"].Ordinal;
+                            dt.Columns["Проведено"].ColumnName = "Проведено_old";
+
+                            var boolCol = new DataColumn("Проведено", typeof(bool));
+                            dt.Columns.Add(boolCol);
+
+                            foreach (DataRow r in dt.Rows)
+                                r["Проведено"] = Convert.ToInt32(r["Проведено_old"]) == 1;
+
+                            dt.Columns.Remove("Проведено_old");
+                            boolCol.SetOrdinal(idx);
+                        }
+
+                        dgvAllEvents.DataSource = dt;
+
+                        foreach (DataGridViewColumn col in dgvAllEvents.Columns)
+                            col.ReadOnly = true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBoxUI.Show($"{ex.Message}", $"{ex.Source}", "Error");
+            }
+        }
+    }
+}
