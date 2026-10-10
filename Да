@@ -21,14 +21,15 @@ namespace SupportDesk.forms
         #endregion
 
         #region Локальный переменные
-        // Единственное объявление DB
+        // Соединение с базой SupportDesk (заявки, пользователи и т.д.)
         private SQLiteConnection DB;
 
-        // Единственное объявление thisDay
+        // Текущая дата
         private readonly DateTime thisDay = DateTime.Now;
 
-        // Строка подключения — используется методами LoadAllEvents и др.
-        private readonly string connectionString = Database.connectionString;
+        // Строка подключения к ОТДЕЛЬНОЙ базе мероприятий
+        // (лежит в bin\Debug\events.db, создаётся автоматически)
+        private readonly string eventsConnectionString = "Data Source=events.db;Version=3;";
         #endregion
 
         [Obsolete]
@@ -39,6 +40,7 @@ namespace SupportDesk.forms
 
         private async void MainAdminForm_Load(object sender, EventArgs e)
         {
+            // === База SupportDesk ===
             DB = new SQLiteConnection(Database.connectionString);
             await DB.OpenAsync();
 
@@ -57,11 +59,11 @@ namespace SupportDesk.forms
             LoadingConfigWidgets();
             LoadingImageAvatar();
 
-            // Загрузка списка мероприятий в dgvAllEvents
+            // === База мероприятий (отдельная) ===
             LoadAllEvents();
         }
 
-        #region Загрузка БД
+        #region Загрузка БД (SupportDesk)
 
         private async void FullList()
         {
@@ -146,7 +148,7 @@ namespace SupportDesk.forms
             }
         }
 
-        // Общий метод подсветки строк заявок — чтобы не дублировать код 6 раз
+        // Общая подсветка строк таблицы заявок
         private void ColorizeGrid()
         {
             for (int i = 0; i < dataGridViewRequests.RowCount; i++)
@@ -328,6 +330,7 @@ namespace SupportDesk.forms
                 pictureBox2.ImageLocation = image;
             }
         }
+
         #endregion
 
         #region Управление формой
@@ -351,7 +354,12 @@ namespace SupportDesk.forms
             }
         }
 
-        private void MainForm_FormClosed(object sender, FormClosedEventArgs e) => Close();
+        private void MainForm_FormClosed(object sender, FormClosedEventArgs e)
+        {
+            DB?.Close();
+            DB?.Dispose();
+            Close();
+        }
         #endregion
 
         #region Справка
@@ -475,7 +483,7 @@ namespace SupportDesk.forms
         }
         #endregion
 
-        #region Отчет по задачам
+        #region Отчет по задачам (Excel)
         private async void ExpUIButtonExcel_Click(object sender, EventArgs e)
         {
             Excel.Application ex = new Excel.Application
@@ -611,7 +619,7 @@ namespace SupportDesk.forms
             comboBoxTypeJob.SelectedItem = "Все работы";
             comboBoxCabinets.SelectedItem = "Все кабинеты";
 
-            // Обновляем и таблицу мероприятий
+            // Обновляем таблицу мероприятий
             LoadAllEvents();
         }
         #endregion
@@ -867,25 +875,25 @@ namespace SupportDesk.forms
         private void ButtonMer_Click(object sender, EventArgs e)
         {
             Form fUse = new Form1();
+            fUse.FormClosed += (s, args) => this.Show();
+            this.Hide();
             fUse.Show();
-            fUse.FormClosed += new FormClosedEventHandler(MainForm_FormClosed);
-            Hide();
         }
 
         private void dataGridViewRequests_CellContentClick(object sender, DataGridViewCellEventArgs e) { }
 
         // ============================================================
-        //         ПОКАЗ СПИСКА МЕРОПРИЯТИЙ В АДМИНКЕ
+        //       ЗАГРУЗКА МЕРОПРИЯТИЙ ИЗ ОТДЕЛЬНОЙ БАЗЫ events.db
         // ============================================================
         private void LoadAllEvents()
         {
             try
             {
-                using (var conn = new SQLiteConnection(connectionString))
+                using (var conn = new SQLiteConnection(eventsConnectionString))
                 {
                     conn.Open();
 
-                    // Создаём таблицу, если её ещё нет
+                    // Создаём таблицу Events, если её ещё нет
                     string createSql = @"CREATE TABLE IF NOT EXISTS Events (
                                              Id          INTEGER PRIMARY KEY AUTOINCREMENT,
                                              Name        TEXT NOT NULL,
@@ -911,6 +919,7 @@ namespace SupportDesk.forms
                         var dt = new DataTable();
                         adapter.Fill(dt);
 
+                        // 0/1 → настоящий bool (DataGridView покажет чекбокс)
                         if (dt.Columns.Contains("Проведено"))
                         {
                             int idx = dt.Columns["Проведено"].Ordinal;
