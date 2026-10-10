@@ -1,3 +1,185 @@
-А
-Алаоаоаоаоа
-Плпллплп
+using System;
+using System.Data;
+using System.Data.SQLite;
+using System.Windows.Forms;
+
+namespace WindowsFormsApp1
+{
+    public partial class AdminForm : Form
+    {
+        private readonly string connectionString = "Data Source=events.db;Version=3;";
+
+        public AdminForm()
+        {
+            InitializeComponent();
+            this.Load += AdminForm_Load;
+        }
+
+        // ---------- При открытии формы ----------
+        private void AdminForm_Load(object sender, EventArgs e)
+        {
+            lblToday.Text = "Сегодня: " + DateTime.Today.ToString("dd.MM.yyyy");
+            LoadAllEvents();
+        }
+
+        // ---------- Кнопка «Обновить» ----------
+        private void btnRefresh_Click(object sender, EventArgs e)
+        {
+            LoadAllEvents();
+        }
+
+        // ---------- Кнопка «Закрыть» ----------
+        private void btnClose_Click(object sender, EventArgs e)
+        {
+            this.Close();
+        }
+
+        // ---------- Переключатели ----------
+        private void rbAll_CheckedChanged(object sender, EventArgs e)
+        {
+            if (rbAll.Checked) LoadAllEvents();
+        }
+
+        private void rbToday_CheckedChanged(object sender, EventArgs e)
+        {
+            if (rbToday.Checked) LoadAllEvents();
+        }
+
+        private void chkNotDoneOnly_CheckedChanged(object sender, EventArgs e)
+        {
+            LoadAllEvents();
+        }
+
+        // ============================================================
+        //              ЗАГРУЗКА СПИСКА ПО ФИЛЬТРУ
+        // ============================================================
+        private void LoadAllEvents()
+        {
+            try
+            {
+                string today = DateTime.Today.ToString("yyyy-MM-dd");
+
+                using (var conn = new SQLiteConnection(connectionString))
+                {
+                    conn.Open();
+
+                    // Собираем WHERE динамически, в зависимости от выбранных фильтров
+                    string sql = @"SELECT Id,
+                                          Name        AS Название,
+                                          Date        AS Дата,
+                                          Place       AS Место,
+                                          Description AS Описание,
+                                          Completed   AS Проведено
+                                   FROM Events
+                                   WHERE 1 = 1";
+
+                    if (rbToday.Checked)
+                        sql += " AND Date = @today";
+
+                    if (chkNotDoneOnly.Checked)
+                        sql += " AND Completed = 0";
+
+                    sql += " ORDER BY Date;";
+
+                    using (var adapter = new SQLiteDataAdapter(sql, conn))
+                    {
+                        if (rbToday.Checked)
+                            adapter.SelectCommand.Parameters.AddWithValue("@today", today);
+
+                        var dt = new DataTable();
+                        adapter.Fill(dt);
+
+                        // Преобразуем 0/1 в настоящий bool
+                        if (dt.Columns.Contains("Проведено"))
+                        {
+                            int idx = dt.Columns["Проведено"].Ordinal;
+                            dt.Columns["Проведено"].ColumnName = "Проведено_old";
+
+                            var boolCol = new DataColumn("Проведено", typeof(bool));
+                            dt.Columns.Add(boolCol);
+
+                            foreach (DataRow r in dt.Rows)
+                                r["Проведено"] = Convert.ToInt32(r["Проведено_old"]) == 1;
+
+                            dt.Columns.Remove("Проведено_old");
+                            boolCol.SetOrdinal(idx);
+                        }
+
+                        dgvAllEvents.DataSource = dt;
+
+                        if (dgvAllEvents.Columns.Contains("Id"))
+                            dgvAllEvents.Columns["Id"].Visible = false;
+
+                        foreach (DataGridViewColumn col in dgvAllEvents.Columns)
+                            col.ReadOnly = true;
+                    }
+                }
+
+                HighlightRows();
+                UpdateStatus();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Ошибка загрузки списка: " + ex.Message,
+                    "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        // ---------- Подсветка строк ----------
+        private void HighlightRows()
+        {
+            DateTime today = DateTime.Today;
+
+            foreach (DataGridViewRow row in dgvAllEvents.Rows)
+            {
+                if (row.IsNewRow || row.Cells["Дата"].Value == null) continue;
+                if (!DateTime.TryParse(row.Cells["Дата"].Value.ToString(), out DateTime d))
+                    continue;
+
+                bool done = row.Cells["Проведено"].Value != null &&
+                            Convert.ToBoolean(row.Cells["Проведено"].Value);
+
+                if (done)
+                {
+                    // Проведённые — зелёные
+                    row.DefaultCellStyle.ForeColor = System.Drawing.Color.DarkGreen;
+                    row.DefaultCellStyle.BackColor = System.Drawing.Color.Honeydew;
+                }
+                else if (d < today)
+                {
+                    // Просроченные — серые
+                    row.DefaultCellStyle.ForeColor = System.Drawing.Color.Gray;
+                    row.DefaultCellStyle.BackColor = System.Drawing.Color.WhiteSmoke;
+                }
+                else if (d == today)
+                {
+                    // Сегодняшние — голубые, чтобы выделялись
+                    row.DefaultCellStyle.ForeColor = System.Drawing.Color.DarkBlue;
+                    row.DefaultCellStyle.BackColor = System.Drawing.Color.LightCyan;
+                }
+                else
+                {
+                    // Будущие — обычные
+                    row.DefaultCellStyle.ForeColor = System.Drawing.Color.Black;
+                    row.DefaultCellStyle.BackColor = System.Drawing.Color.White;
+                }
+            }
+        }
+
+        // ---------- Счётчик ----------
+        private void UpdateStatus()
+        {
+            int total = 0, done = 0;
+            foreach (DataGridViewRow r in dgvAllEvents.Rows)
+            {
+                if (r.IsNewRow) continue;
+                total++;
+                if (r.Cells["Проведено"].Value != null &&
+                    Convert.ToBoolean(r.Cells["Проведено"].Value)) done++;
+            }
+
+            string mode = rbToday.Checked ? "на сегодня" : "всего";
+            lblInfo.Text = $"Показано {mode}: {total} | Проведено: {done}";
+        }
+    }
+}
